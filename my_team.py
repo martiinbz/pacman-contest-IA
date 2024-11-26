@@ -13,17 +13,16 @@ from contest.capture_agents import CaptureAgent
 from contest.game import Directions
 from contest.util import nearest_point
 
-
 #################
 # Team creation #
 #################
 
 def create_team(first_index, second_index, is_red,
-                first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=0):
+               first='MyCustomAgent', second='MyCustomAgent', num_training=0):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
-    index numbers.  isRed is True if the red team is being created, and
+    index numbers. isRed is True if the red team is being created, and
     will be False if the blue team is being created.
 
     As a potentially helpful development aid, this function can take
@@ -36,69 +35,60 @@ def create_team(first_index, second_index, is_red,
     """
     return [eval(first)(first_index), eval(second)(second_index)]
 
-
 ##########
 # Agents #
 ##########
 
-class ReflexCaptureAgent(CaptureAgent):
+class MyCustomAgent(CaptureAgent):
     """
-    A base class for reflex agents that choose score-maximizing actions
+    A custom Capture Agent that can be tailored for offensive or defensive strategies.
     """
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
         self.start = None
+        self.walls = None
+        self.width = 0
+        self.height = 0
 
     def register_initial_state(self, game_state):
+        """
+        Initializes the agent's starting position and game map information.
+        """
         self.start = game_state.get_agent_position(self.index)
+        self.walls = game_state.get_walls()
+        self.width = game_state.data.layout.width
+        self.height = game_state.data.layout.height
         CaptureAgent.register_initial_state(self, game_state)
 
     def choose_action(self, game_state):
         """
-        Picks among the actions with the highest Q(s,a).
+        Chooses the best action based on evaluation of possible moves.
         """
         actions = game_state.get_legal_actions(self.index)
+        # Remove STOP action to encourage movement
+        actions = [action for action in actions if action != Directions.STOP]
 
-        # You can profile your evaluation time by uncommenting these lines
-        # start = time.time()
-        values = [self.evaluate(game_state, a) for a in actions]
-        # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
+        # Evaluate each action
+        values = [self.evaluate(game_state, action) for action in actions]
 
+        # Find the maximum evaluation value
         max_value = max(values)
-        best_actions = [a for a, v in zip(actions, values) if v == max_value]
 
-        food_left = len(self.get_food(game_state).as_list())
+        # Choose actions that have the maximum evaluation value
+        best_actions = [action for action, value in zip(actions, values) if value == max_value]
 
-        if food_left <= 2:
-            best_dist = 9999
-            best_action = None
-            for action in actions:
-                successor = self.get_successor(game_state, action)
-                pos2 = successor.get_agent_position(self.index)
-                dist = self.get_maze_distance(self.start, pos2)
-                if dist < best_dist:
-                    best_action = action
-                    best_dist = dist
-            return best_action
+        # Select randomly among the best actions to introduce variability
+        chosen_action = random.choice(best_actions)
 
-        return random.choice(best_actions)
+        # Debugging: Print chosen action
+        # print(f"Agent {self.index} chooses action {chosen_action}")
 
-    def get_successor(self, game_state, action):
-        """
-        Finds the next successor which is a grid position (location tuple).
-        """
-        successor = game_state.generate_successor(self.index, action)
-        pos = successor.get_agent_state(self.index).get_position()
-        if pos != nearest_point(pos):
-            # Only half a grid position was covered
-            return successor.generate_successor(self.index, action)
-        else:
-            return successor
+        return chosen_action
 
     def evaluate(self, game_state, action):
         """
-        Computes a linear combination of features and feature weights
+        Evaluates the desirability of a given action.
         """
         features = self.get_features(game_state, action)
         weights = self.get_weights(game_state, action)
@@ -106,78 +96,92 @@ class ReflexCaptureAgent(CaptureAgent):
 
     def get_features(self, game_state, action):
         """
-        Returns a counter of features for the state
+        Extracts features from the game state after taking an action.
         """
         features = util.Counter()
         successor = self.get_successor(game_state, action)
-        features['successor_score'] = self.get_score(successor)
-        return features
 
-    def get_weights(self, game_state, action):
-        """
-        Normally, weights do not depend on the game state.  They can be either
-        a counter or a dictionary.
-        """
-        return {'successor_score': 1.0}
-
-
-class OffensiveReflexAgent(ReflexCaptureAgent):
-    """
-  A reflex agent that seeks food. This is an agent
-  we give you to get an idea of what an offensive agent might look like,
-  but it is by no means the best or only way to build an offensive agent.
-  """
-
-    def get_features(self, game_state, action):
-        features = util.Counter()
-        successor = self.get_successor(game_state, action)
+        # Example feature: distance to the nearest food
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.getScore(successor)
-
-        # Compute distance to the nearest food
-
-        if len(food_list) > 0:  # This should always be True,  but better safe than sorry
+        if len(food_list) > 0:
             my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
-        return features
+        else:
+            features['distance_to_food'] = 0
 
-    def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
-
-
-class DefensiveReflexAgent(ReflexCaptureAgent):
-    """
-    A reflex agent that keeps its side Pacman-free. Again,
-    this is to give you an idea of what a defensive agent
-    could be like.  It is not the best or only way to make
-    such an agent.
-    """
-
-    def get_features(self, game_state, action):
-        features = util.Counter()
-        successor = self.get_successor(game_state, action)
-
-        my_state = successor.get_agent_state(self.index)
-        my_pos = my_state.get_position()
-
-        # Computes whether we're on defense (1) or offense (0)
-        features['on_defense'] = 1
-        if my_state.is_pacman: features['on_defense'] = 0
-
-        # Computes distance to invaders we can see
+        # Example feature: number of invaders
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
         features['num_invaders'] = len(invaders)
-        if len(invaders) > 0:
-            dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
-            features['invader_distance'] = min(dists)
 
-        if action == Directions.STOP: features['stop'] = 1
-        rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1
+        # Example feature: whether the action stops Pacman from moving
+        if action == Directions.STOP:
+            features['stop'] = 1
+        else:
+            features['stop'] = 0
+
+        # Example feature: whether the action reverses the current direction
+        current_direction = game_state.get_agent_state(self.index).configuration.direction
+        if action == Directions.REVERSE.get(current_direction, None):
+            features['reverse'] = 1
+        else:
+            features['reverse'] = 0
 
         return features
 
     def get_weights(self, game_state, action):
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
+        """
+        Assigns weights to each feature for evaluation.
+        """
+        return {
+            'distance_to_food': -1.5,
+            'num_invaders': -1000,
+            'stop': -100,
+            'reverse': -2
+        }
+
+    def get_successor(self, game_state, action):
+        """
+        Generates the successor game state after taking an action.
+        """
+        successor = game_state.generate_successor(self.index, action)
+        pos = successor.get_agent_state(self.index).get_position()
+
+        if pos != nearest_point(pos):
+            # Only half a grid position was covered
+            return successor.generate_successor(self.index, action)
+        else:
+            return successor
+
+    # Optional: Add additional methods for enhanced behavior
+
+    def get_opponents(self, game_state):
+        """
+        Returns a list of opponent agent indices.
+        """
+        return self.get_opponents_indices()
+
+    def get_opponents_indices(self):
+        """
+        Retrieves the indices of opponent agents.
+        """
+        num_agents = game_state.get_num_agents()
+        opponents = []
+        for i in range(num_agents):
+            if i != self.index and i not in self.get_team_indices():
+                opponents.append(i)
+        return opponents
+
+    def get_team_indices(self):
+        """
+        Retrieves the indices of agents on the same team.
+        """
+        team_indices = [self.index]
+        # Assuming you have a method to get team members; replace with actual implementation
+        for agent in self.get_team(game_state=None):
+            if agent != self.index:
+                team_indices.append(agent)
+        return team_indices
+
+    # Add more helper methods as needed for complex strategies
