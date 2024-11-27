@@ -1,4 +1,4 @@
-# baseline_team.py
+# baselineTeam.py
 # ---------------
 # Licensing Information:  You are free to use or extend these projects for
 # educational purposes provided that (1) you do not distribute or publish
@@ -11,22 +11,12 @@
 # Student side autograding was added by Brad Miller, Nick Hay, and
 # Pieter Abbeel (pabbeel@cs.berkeley.edu).
 
-
-# baseline_team.py
-# ---------------
-# Licensing Information: Please do not distribute or publish solutions to this
-# project. You are free to use and extend these projects for educational
-# purposes. The Pacman AI projects were developed at UC Berkeley, primarily by
-# John DeNero (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
-# For more info, see http://inst.eecs.berkeley.edu/~cs188/sp09/pacman.html
-
 import random
-import util
+import contest.util as util
 
-from captureAgents import CaptureAgent
-from game import Directions
-from util import nearestPoint
-
+from contest.captureAgents import CaptureAgent
+from contest.game import Directions
+from contest.util import nearestPoint
 
 #################
 # Team creation #
@@ -36,20 +26,9 @@ def create_team(first_index, second_index, is_red,
                 first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=0):
     """
     This function should return a list of two agents that will form the
-    team, initialized using firstIndex and secondIndex as their agent
-    index numbers.  isRed is True if the red team is being created, and
-    will be False if the blue team is being created.
-
-    As a potentially helpful development aid, this function can take
-    additional string-valued keyword arguments ("first" and "second" are
-    such arguments in the case of this function), which will come from
-    the --redOpts and --blueOpts command-line arguments to capture.py.
-    For the nightly contest, however, your team will be created without
-    any extra arguments, so you should make sure that the default
-    behavior is what you want for the nightly contest.
+    team, initialized using firstIndex and secondIndex as their agent index numbers.
     """
     return [eval(first)(first_index), eval(second)(second_index)]
-
 
 ##########
 # Agents #
@@ -112,7 +91,7 @@ class ReflexCaptureAgent(CaptureAgent):
 
     def evaluate(self, game_state, action):
         """
-        Computes a linear combination of features and feature weights
+        Evaluates the desirability of a given action.
         """
         features = self.get_features(game_state, action)
         weights = self.get_weights(game_state, action)
@@ -120,36 +99,60 @@ class ReflexCaptureAgent(CaptureAgent):
 
     def get_features(self, game_state, action):
         """
-        Returns a counter of features for the state
+        Extracts features from the game state after taking an action.
         """
         features = util.Counter()
         successor = self.get_successor(game_state, action)
-        features['successor_score'] = self.get_score(successor)
+
+        # Feature: distance to the nearest food
+        food_list = self.get_food(successor).as_list()
+        if food_list:
+            my_pos = successor.get_agent_state(self.index).get_position()
+            min_distance = min(self.get_maze_distance(my_pos, food) for food in food_list)
+            features['distance_to_food'] = min_distance
+        else:
+            features['distance_to_food'] = 0
+
+        # Feature: number of invaders
+        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
+        features['num_invaders'] = len(invaders)
+
+        # Feature: whether the action stops Pacman from moving
+        features['stop'] = 1 if action == Directions.STOP else 0
+
+        # Feature: whether the action reverses the current direction
+        current_direction = game_state.get_agent_state(self.index).configuration.direction
+        successor_direction = successor.get_agent_state(self.index).configuration.direction
+        features['reverse'] = 1 if successor_direction == Directions.REVERSE[current_direction] else 0
+
         return features
 
     def get_weights(self, game_state, action):
         """
-        Normally, weights do not depend on the game state.  They can be either
-        a counter or a dictionary.
+        Returns the weights for each feature.
         """
-        return {'successor_score': 1.0}
-
+        return {
+            'distance_to_food': -1.0,
+            'num_invaders': -1000.0,
+            'stop': -100.0,
+            'reverse': -2.0
+        }
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
     """
-  A reflex agent that seeks food. This is an agent
-  we give you to get an idea of what an offensive agent might look like,
-  but it is by no means the best or only way to build an offensive agent.
-  """
+    A reflex agent that seeks food. This is an agent
+    we give you to get an idea of what an offensive agent might look like,
+    but it is by no means the best or only way to build an offensive agent.
+    """
 
     def get_features(self, game_state, action):
         features = util.Counter()
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.get_score(successor)
+        features['successor_score'] = -len(food_list)  # self.getScore(successor)
 
         # Compute distance to the nearest food
-
         if len(food_list) > 0:  # This should always be True,  but better safe than sorry
             my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
@@ -159,12 +162,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def get_weights(self, game_state, action):
         return {'successor_score': 100, 'distance_to_food': -1}
 
-
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
     A reflex agent that keeps its side Pacman-free. Again,
     this is to give you an idea of what a defensive agent
-    could be like.  It is not the best or only way to make
+    could be like. It is not the best or only way to make
     such an agent.
     """
 
@@ -194,4 +196,10 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return features
 
     def get_weights(self, game_state, action):
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
+        return {
+            'num_invaders': -1000,
+            'on_defense': 100,
+            'invader_distance': -10,
+            'stop': -100,
+            'reverse': -2
+        }

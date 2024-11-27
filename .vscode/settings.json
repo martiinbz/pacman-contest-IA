@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./pacman-contest/src"
+    ]
+}
