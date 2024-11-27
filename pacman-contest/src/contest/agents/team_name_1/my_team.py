@@ -1,19 +1,5 @@
-# baselineTeam.py
-# ---------------
-# Licensing Information:  You are free to use or extend these projects for
-# educational purposes provided that (1) you do not distribute or publish
-# solutions, (2) you retain this notice, and (3) you provide clear
-# attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
-# 
-# Attribution Information: The Pacman AI projects were developed at UC Berkeley.
-# The core projects and autograders were primarily created by John DeNero
-# (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
-# Student side autograding was added by Brad Miller, Nick Hay, and
-# Pieter Abbeel (pabbeel@cs.berkeley.edu).
-
 import random
 import contest.util as util
-
 from contest.capture_agents import CaptureAgent
 from contest.game import Directions
 from contest.util import nearest_point
@@ -23,10 +9,10 @@ from contest.util import nearest_point
 #################
 
 def create_team(first_index, second_index, is_red,
-                first='ReflexCaptureAgent', second='DefensiveReflexAgent', num_training=0):
+                first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=0):
     """
     This function should return a list of two agents that will form the
-    team, initialized using firstIndex and secondIndex as their agent index numbers.
+    team, initialized using firstIndex and secondIndex as sus números de índice de agente.
     """
     return [eval(first)(first_index), eval(second)(second_index)]
 
@@ -126,6 +112,14 @@ class ReflexCaptureAgent(CaptureAgent):
         successor_direction = successor.get_agent_state(self.index).configuration.direction
         features['reverse'] = 1 if successor_direction == Directions.REVERSE[current_direction] else 0
 
+        # Feature: distance to the nearest capsule
+        capsules = self.get_capsules(successor)
+        if capsules:
+            min_capsule_distance = min(self.get_maze_distance(my_pos, capsule) for capsule in capsules)
+            features['distance_to_capsule'] = min_capsule_distance
+        else:
+            features['distance_to_capsule'] = 0
+
         return features
 
     def get_weights(self, game_state, action):
@@ -136,7 +130,8 @@ class ReflexCaptureAgent(CaptureAgent):
             'distance_to_food': -1.0,
             'num_invaders': -1000.0,
             'stop': -100.0,
-            'reverse': -2.0
+            'reverse': -2.0,
+            'distance_to_capsule': -1.0
         }
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
@@ -157,10 +152,33 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
+
+        # Feature: distance to the nearest capsule
+        capsules = self.get_capsules(successor)
+        if capsules:
+            min_capsule_distance = min(self.get_maze_distance(my_pos, capsule) for capsule in capsules)
+            features['distance_to_capsule'] = min_capsule_distance
+        else:
+            features['distance_to_capsule'] = 0
+
+        # Feature: distance to the nearest ghost
+        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
+        if ghosts:
+            min_ghost_distance = min(self.get_maze_distance(my_pos, ghost.get_position()) for ghost in ghosts)
+            features['distance_to_ghost'] = min_ghost_distance
+        else:
+            features['distance_to_ghost'] = 0
+
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
+        return {
+            'successor_score': 100,
+            'distance_to_food': -1,
+            'distance_to_capsule': -1,
+            'distance_to_ghost': 2
+        }
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
@@ -189,6 +207,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
             features['invader_distance'] = min(dists)
 
+        # Feature: distance to the nearest food
+        food_list = self.get_food(successor).as_list()
+        if food_list:
+            min_distance = min(self.get_maze_distance(my_pos, food) for food in food_list)
+            features['distance_to_food'] = min_distance
+        else:
+            features['distance_to_food'] = 0
+
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1
@@ -200,6 +226,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             'num_invaders': -1000,
             'on_defense': 100,
             'invader_distance': -10,
+            'distance_to_food': -1,
             'stop': -100,
             'reverse': -2
         }
