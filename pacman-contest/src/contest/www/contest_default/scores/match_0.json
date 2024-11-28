@@ -4,34 +4,34 @@
             "Red",
             "Blue",
             "layouts\\defaultCapture.lay",
-            0,
-            null,
-            112.0,
+            3,
+            "Red",
+            48.0,
             0
         ]
     ],
     "layouts": [
         "layouts\\defaultCapture.lay"
     ],
-    "max_steps": 1200,
+    "max_steps": 600,
     "teams_stats": {
         "Blue": [
-            33.333333333333336,
-            1,
+            0.0,
+            0,
+            0,
             0,
             1,
-            0,
             0,
             0
         ],
         "Red": [
-            33.333333333333336,
+            100.0,
+            3,
             1,
             0,
-            1,
             0,
             0,
-            0
+            3
         ]
     }
 }
