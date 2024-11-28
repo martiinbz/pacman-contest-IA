@@ -140,6 +140,10 @@ class OffensiveAgent(ReflexCaptureAgent):
     An offensive agent that seeks food and avoids ghosts.
     """
 
+    def __init__(self, index, time_for_computing=.1):
+        super().__init__(index, time_for_computing)
+        self.last_action = None
+
     def choose_action(self, game_state):
         actions = game_state.get_legal_actions(self.index)
         my_state = game_state.get_agent_state(self.index)
@@ -149,37 +153,55 @@ class OffensiveAgent(ReflexCaptureAgent):
         enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
         defenders = [e for e in enemies if not e.is_pacman and e.get_position() is not None]
 
-        # Regresar inmediatamente si estÃ¡ cargando al menos 3 alimentos
+        # Si lleva al menos dos comidas, evaluar si es mejor ir a por otra o regresar
         if my_state.num_carrying >= 1:
-            return self.get_action_towards(game_state, self.start)
+            if food:
+                food_distances = [(self.get_maze_distance(my_pos, food_pos), food_pos) for food_pos in food]
+                closest_food = min(food_distances, key=lambda x: x[0])[1]
 
-        # Calculate distances to defenders
-        defender_distances = [(self.get_maze_distance(my_pos, defender.get_position()), defender.get_position()) for defender in defenders if defender.get_position()]
-        closest_defender = min(defender_distances, key=lambda x: x[0])[1] if defender_distances else None
+                defender_distances = [
+                    (self.get_maze_distance(closest_food, defender.get_position()), defender.get_position())
+                    for defender in defenders
+                    if defender.get_position()
+                ]
+                if defender_distances:
+                    closest_defender_dist = min(defender_distances, key=lambda x: x[0])[0]
+                    my_dist_to_food = self.get_maze_distance(my_pos, closest_food)
 
-        # Avoid defenders if close
-        if closest_defender and self.get_maze_distance(my_pos, closest_defender) < 6:
-            safe_actions = [action for action in actions if self.get_maze_distance(
-                self.get_successor(game_state, action).get_agent_state(self.index).get_position(), closest_defender) > 3]
-            if safe_actions:
-                return random.choice(safe_actions)
+                    # Si la distancia al fantasma es menor o igual que la del agente, regresa a su campo
+                    if closest_defender_dist <= my_dist_to_food:
+                        return self.get_action_towards(game_state, self.start)
 
-        # Prioritize capsules if defender is nearby
-        if capsules:
-            capsule_distances = [(self.get_maze_distance(my_pos, cap), cap) for cap in capsules]
-            closest_capsule = min(capsule_distances, key=lambda x: x[0])[1]
-            if closest_capsule and closest_defender and self.get_maze_distance(my_pos, closest_defender) < 5:
-                return self.get_action_towards(game_state, closest_capsule)
+                    # Evaluar si ir a por otra comida o regresar
+                    next_food = self.get_next_closest_food(game_state, closest_food)
+                    if next_food:
+                        next_food_dist = self.get_maze_distance(closest_food, next_food)
+                        if next_food_dist <= 1:  # Consider next food only if very close
+                            return self.get_action_towards(game_state, next_food)
+                    return self.get_action_towards(game_state, self.start)
 
-        # Default behavior: move towards the nearest food
+        # Si no hay comida o está en fase de recolección, comportarse normalmente
         if food:
             food_distances = [(self.get_maze_distance(my_pos, food_pos), food_pos) for food_pos in food]
             closest_food = min(food_distances, key=lambda x: x[0])[1]
             return self.get_action_towards(game_state, closest_food)
 
-        # If no other options, pick a random legal action (avoid staying still)
-        legal_actions = [action for action in actions if action != Directions.STOP]
-        return random.choice(legal_actions) if legal_actions else Directions.STOP
+        # Si no hay comida, regresar al inicio
+        return self.get_action_towards(game_state, self.start)
+
+    def get_next_closest_food(self, game_state, current_food):
+        """
+        Returns the next closest food to the current food position.
+        """
+        my_pos = game_state.get_agent_state(self.index).get_position()
+        food_list = self.get_food(game_state).as_list()
+        food_list.remove(current_food)
+        if food_list:
+            food_distances = [(self.get_maze_distance(current_food, food_pos), food_pos) for food_pos in food_list]
+            closest_food = min(food_distances, key=lambda x: x[0])[1]
+            if self.get_maze_distance(my_pos, closest_food) <= 2:
+                return closest_food
+        return None
 
     def get_action_towards(self, game_state, target_pos):
         """
@@ -199,6 +221,28 @@ class OffensiveAgent(ReflexCaptureAgent):
 
         return best_action
 
+    def choose_non_repetitive_action(self, actions):
+        """
+        Chooses an action that is not the same as the last action.
+        """
+        if self.last_action is None:
+            self.last_action = random.choice(actions)
+        else:
+            actions = [action for action in actions if action != self.last_action]
+            if actions:
+                self.last_action = random.choice(actions)
+            else:
+                self.last_action = random.choice(actions)
+        return self.last_action
+
+    def get_weights(self, game_state, action):
+        """
+        Returns the weights for each feature.
+        """
+        return {
+            'distance_to_food': -1.0,
+            'invader_distance': 1.5
+        }
 
 
 class DefensiveAgent(ReflexCaptureAgent):
