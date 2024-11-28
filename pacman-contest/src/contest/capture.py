@@ -1110,13 +1110,17 @@ def run_games(layouts, agents, display, length, num_games, record, num_training,
 
     if num_games > 1:
         scores = [game.state.data.score for game in games_list]
-        red_win_rate = [s > 0 for s in scores].count(True) / float(len(scores))
-        blue_win_rate = [s < 0 for s in scores].count(True) / float(len(scores))
-        print(f'Average Score:', sum(scores) / float(len(scores)))
-        print('Scores:       ', ', '.join([str(score) for score in scores]))
-        print(f'Red Win Rate:  {[s > 0 for s in scores].count(True)}/{len(scores)} ({red_win_rate:.2f})')
-        print(f'Blue Win Rate: {[s < 0 for s in scores].count(True)}/{len(scores)} ({blue_win_rate:.2f})')
-        print('Record:       ', ', '.join([('Blue', 'Tie', 'Red')[max(0, min(2, 1 + s))] for s in scores]))
+        if float(len(scores))==0:
+            print('No games played')
+            print(f'Games Won by red: {[s>0 for s in scores].count(True)}')
+        else:
+            red_win_rate = [s > 0 for s in scores].count(True) / float(len(scores))
+            blue_win_rate = [s < 0 for s in scores].count(True) / float(len(scores))
+            print(f'Average Score:', sum(scores) / float(len(scores)))
+            print('Scores:       ', ', '.join([str(score) for score in scores]))
+            print(f'Red Win Rate:  {[s > 0 for s in scores].count(True)}/{len(scores)} ({red_win_rate:.2f})')
+            print(f'Blue Win Rate: {[s < 0 for s in scores].count(True)}/{len(scores)} ({blue_win_rate:.2f})')
+            print('Record:       ', ', '.join([('Blue', 'Tie', 'Red')[max(0, min(2, 1 + s))] for s in scores]))
     return games_list
 
 

@@ -3,6 +3,7 @@ import contest.util as util
 from contest.capture_agents import CaptureAgent
 from contest.game import Directions
 from contest.util import nearest_point
+import numpy as np
 
 #################
 # Team creation #
@@ -40,9 +41,9 @@ class ReflexCaptureAgent(CaptureAgent):
         actions = game_state.get_legal_actions(self.index)
 
         # You can profile your evaluation time by uncommenting these lines
-        # start = time.time()
+       # start = time.time()
         values = [self.evaluate(game_state, a) for a in actions]
-        # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
+       # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
 
         max_value = max(values)
         best_actions = [a for a, v in zip(actions, values) if v == max_value]
@@ -134,6 +135,9 @@ class ReflexCaptureAgent(CaptureAgent):
             'distance_to_capsule': -1.0
         }
 
+
+
+
 class OffensiveReflexAgent(ReflexCaptureAgent):
     """
     A reflex agent that seeks food. This is an agent
@@ -145,15 +149,21 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         features = util.Counter()
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.getScore(successor)
+        features['successor_score'] = -len(food_list)
 
-        # Compute distance to the nearest food
-        if len(food_list) > 0:  # This should always be True,  but better safe than sorry
-            my_pos = successor.get_agent_state(self.index).get_position()
+        # Posición actual del agente
+        my_pos = successor.get_agent_state(self.index).get_position()
+
+        # Verificar si la posición actual es válida
+        if not self.is_position_valid(my_pos, game_state):
+            return features
+
+        # Distancia a la comida más cercana
+        if len(food_list) > 0:
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
 
-        # Feature: distance to the nearest capsule
+        # Distancia a la cápsula más cercana
         capsules = self.get_capsules(successor)
         if capsules:
             min_capsule_distance = min(self.get_maze_distance(my_pos, capsule) for capsule in capsules)
@@ -161,7 +171,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         else:
             features['distance_to_capsule'] = 0
 
-        # Feature: distance to the nearest ghost
+        # Distancia al fantasma más cercano
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
         if ghosts:
@@ -170,15 +180,64 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         else:
             features['distance_to_ghost'] = 0
 
-        # Feature: distance to home
-        if self.get_food(game_state).count() <= 2:  # Adjust the number of food pieces as needed
+        # Distancia al punto más cercano de su lado del campo (retorno a casa)
+        if len(food_list) <= 2:  # Si tiene 2 comidas o menos
             home_boundary = self.get_home_boundary(successor)
-            min_home_distance = min(self.get_maze_distance(my_pos, home) for home in home_boundary)
-            features['distance_to_home'] = min_home_distance
+            valid_home_positions = [pos for pos in home_boundary if self.is_position_valid(pos, game_state)]
+            if valid_home_positions:
+                min_home_distance = min(self.get_maze_distance(my_pos, home) for home in valid_home_positions)
+                features['distance_to_home'] = min_home_distance
+            else:
+                features['distance_to_home'] = 0
         else:
             features['distance_to_home'] = 0
 
+        # Verificar si debe regresar a casa (obligatorio)
+        if len(food_list) <= 2:
+            nearby_food = [food for food in food_list if self.get_maze_distance(my_pos, food) <= 5]
+            if not nearby_food:  # No hay comida cerca
+                features['return_home'] = 1
+            else:
+                features['return_home'] = 0
+        else:
+            features['return_home'] = 0
+
         return features
+
+    def get_weights(self, game_state, action):
+        return {
+            'successor_score': 100,
+            'distance_to_food': -1,
+            'distance_to_capsule': -1,
+            'distance_to_ghost': 10,
+            'distance_to_home': -2,
+            'return_home': 2000  # Alta prioridad para retornar a casa
+        }
+
+    def get_home_boundary(self, game_state):
+        """
+        Returns the positions on the home boundary.
+        """
+        mid_x = game_state.data.layout.width // 2
+        if self.red:
+            mid_x -= 1
+        else:
+            mid_x += 1
+        boundary_positions = [(mid_x, y) for y in range(game_state.data.layout.height)]
+        return boundary_positions
+
+    def is_position_valid(self, pos, game_state):
+        """
+        Verifica si una posición está dentro de la cuadrícula del juego.
+        """
+        x, y = pos
+        return 0 <= x < game_state.data.layout.width and 0 <= y < game_state.data.layout.height
+
+
+
+
+
+
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
     A reflex agent that keeps its side Pacman-free. Again,
