@@ -170,16 +170,15 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         else:
             features['distance_to_ghost'] = 0
 
+        # Feature: distance to home
+        if self.get_food(game_state).count() <= 2:  # Adjust the number of food pieces as needed
+            home_boundary = self.get_home_boundary(successor)
+            min_home_distance = min(self.get_maze_distance(my_pos, home) for home in home_boundary)
+            features['distance_to_home'] = min_home_distance
+        else:
+            features['distance_to_home'] = 0
+
         return features
-
-    def get_weights(self, game_state, action):
-        return {
-            'successor_score': 100,
-            'distance_to_food': -1,
-            'distance_to_capsule': -1,
-            'distance_to_ghost': 2
-        }
-
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
     A reflex agent that keeps its side Pacman-free. Again,
