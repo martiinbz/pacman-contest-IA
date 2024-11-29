@@ -103,9 +103,14 @@ class OffensiveAgent(ReflexCaptureAgent):
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
         self.last_action = None
+        self.action_history = []
+        self.position_history = []
+        self.last_food_target = None
 
     def choose_action(self, game_state):
-        
+        """
+        Chooses an action based on the current game state.
+        """
         actions = game_state.get_legal_actions(self.index)
         my_state = game_state.get_agent_state(self.index)
         my_pos = my_state.get_position()
@@ -114,24 +119,34 @@ class OffensiveAgent(ReflexCaptureAgent):
         enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
         defenders = [e for e in enemies if not e.is_pacman and e.get_position() is not None]
 
-        # when carrying food, decide if it should return home or keep collecting
+        # Track position history to avoid loops
+        if len(self.position_history) >= 10:
+            self.position_history.pop(0)
+        self.position_history.append(my_pos)
+
+        # When carrying 3 or more food, return home if no food is immediately adjacent
+        if my_state.num_carrying >= 3:
+            adjacent_food = any(self.get_maze_distance(my_pos, food_pos) == 1 for food_pos in food)
+            if not adjacent_food:
+                return self.get_action_towards(game_state, self.start)
+
+        # when carrying at least one food, be more cautious with defenders
         if my_state.num_carrying >= 1:
             if food:
                 food_distances = [(self.get_maze_distance(my_pos, food_pos), food_pos) for food_pos in food]
                 closest_food = min(food_distances, key=lambda x: x[0])[1]
-                
+
                 defender_distances = [
                     (self.get_maze_distance(closest_food, defender.get_position()), defender.get_position())
                     for defender in defenders
                     if defender.get_position()
                 ]
-                #
                 if defender_distances:
                     closest_defender_dist = min(defender_distances, key=lambda x: x[0])[0]
                     my_dist_to_food = self.get_maze_distance(my_pos, closest_food)
 
                     # return home if defender is too close and not scared
-                    if closest_defender_dist <= my_dist_to_food and not any(defender.scared_timer > 0 for defender in defenders):
+                    if closest_defender_dist <= my_dist_to_food * 2 and not any(defender.scared_timer > 0 for defender in defenders):
                         return self.get_action_towards(game_state, self.start)
 
                     # eat another food if it's very close
@@ -140,29 +155,45 @@ class OffensiveAgent(ReflexCaptureAgent):
                         next_food_dist = self.get_maze_distance(closest_food, next_food)
                         if next_food_dist <= 1:
                             return self.get_action_towards(game_state, next_food)
-                    #if no food is close, return home
+                    # if no food is close, return home immidiately
                     return self.get_action_towards(game_state, self.start)
 
         # if not carrying food, continue collecting
         if food:
             food_distances = [(self.get_maze_distance(my_pos, food_pos), food_pos) for food_pos in food]
             closest_food = min(food_distances, key=lambda x: x[0])[1]
+
+            # avoid going for the same food after respawning if a defender is nearby
+            if self.last_food_target and self.last_food_target == closest_food:
+                defender_distances = [
+                    (self.get_maze_distance(closest_food, defender.get_position()), defender.get_position())
+                    for defender in defenders
+                    if defender.get_position()
+                ]
+                if defender_distances:
+                    closest_defender_dist = min(defender_distances, key=lambda x: x[0])[0]
+                    if closest_defender_dist <= 2:
+                        self.last_food_target = None
+                        return self.choose_non_repetitive_action(self.get_action_towards(game_state, self.start), actions, game_state)
+
             safe_action = self.get_safe_action_towards(game_state, closest_food, defenders)
             if safe_action:
-                return safe_action
+                self.last_food_target = closest_food
+                return self.choose_non_repetitive_action(safe_action, actions, game_state)
 
-            # if no safe action, try to find another food
+            # if no safe action, try to find another different food
             for food_pos in food:
                 if food_pos != closest_food:
                     safe_action = self.get_safe_action_towards(game_state, food_pos, defenders)
                     if safe_action:
-                        return safe_action
+                        self.last_food_target = food_pos
+                        return self.choose_non_repetitive_action(safe_action, actions, game_state)
 
-        # If no food left or no safe action, return home
-        return self.get_action_towards(game_state, self.start)
+        # if no food left or no safe action, return home
+        return self.choose_non_repetitive_action(self.get_action_towards(game_state, self.start), actions, game_state)
 
     def get_next_closest_food(self, game_state, current_food):
-       
+       # Returns the next closest food to the current food.
         my_pos = game_state.get_agent_state(self.index).get_position()
         food_list = self.get_food(game_state).as_list()
         food_list.remove(current_food)
@@ -174,10 +205,10 @@ class OffensiveAgent(ReflexCaptureAgent):
         return None
 
     def get_action_towards(self, game_state, target_pos):
-        
+        # Returns the action that moves the agent closer to the target position.
         actions = game_state.get_legal_actions(self.index)
         best_action = None
-        min_distance = 100000000
+        min_distance = float('inf')
 
         for action in actions:
             successor = self.get_successor(game_state, action)
@@ -190,44 +221,59 @@ class OffensiveAgent(ReflexCaptureAgent):
         return best_action
 
     def get_safe_action_towards(self, game_state, target_pos, defenders):
-        
+       # Returns the action that moves the agent closer to the target position while avoiding defenders.
         actions = game_state.get_legal_actions(self.index)
         best_action = None
-        min_distance = 1000000
+        min_distance = float('inf')
 
         for action in actions:
             successor = self.get_successor(game_state, action)
             new_pos = successor.get_agent_state(self.index).get_position()
             distance = self.get_maze_distance(new_pos, target_pos)
             defender_distances = [self.get_maze_distance(new_pos, defender.get_position()) for defender in defenders if defender.get_position()]
-            if distance < min_distance and all(dist > 1 or defender.scared_timer > 0 for dist, defender in zip(defender_distances, defenders)):
+            if distance < min_distance and all(dist > 2 or defender.scared_timer > 0 for dist, defender in zip(defender_distances, defenders)):
                 min_distance = distance
                 best_action = action
 
         return best_action if best_action else None
 
+    def choose_non_repetitive_action(self, action, legal_actions, game_state):
+       
+
+        # avoids getting stuck in a loop with the enemy agent
+        # by checking if a position has been visited multiple times in a short time period
+        if self.position_history.count(self.position_history[-1]) > 2:
+            actions = [a for a in legal_actions if self.get_successor(game_state, a).get_agent_state(self.index).get_position() != self.position_history[-1]]
+            if actions:
+                action = random.choice(actions)
+
+        self.last_action = action
+        return action
+
     def get_features(self, game_state, action):
-        
+        """
+        Extracts features from the game state after taking an action.
+        """
         features = util.Counter()
         successor = self.get_successor(game_state, action)
         my_pos = successor.get_agent_state(self.index).get_position()
         food_list = self.get_food(successor).as_list()
         capsules = self.get_capsules(successor)
-        #distance to food
+
         if food_list:
             min_distance = min(self.get_maze_distance(my_pos, food) for food in food_list)
             features['distance_to_food'] = min_distance
         else:
             features['distance_to_food'] = 0
-        #distance to ghost (scared or not)
+
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         defenders = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
         if defenders:
             dists = [self.get_maze_distance(my_pos, a.get_position()) for a in defenders]
             features['defender_distance'] = min(dists)
             features['scared_defender_distance'] = min(self.get_maze_distance(my_pos, a.get_position()) for a in defenders if a.scared_timer > 0)
-        #distance to capsule
-        if  capsules:
+
+        if capsules:
             min_capsule_distance = min(self.get_maze_distance(my_pos, capsule) for capsule in capsules)
             features['distance_to_capsule'] = min_capsule_distance
         else:
@@ -238,11 +284,13 @@ class OffensiveAgent(ReflexCaptureAgent):
         return features
 
     def get_weights(self, game_state, action):
-        
+        """
+        Returns the weights for each feature.
+        """
         return {
             'distance_to_food': -1.0,
-            'defender_distance': 50,
-            'scared_defender_distance': -50,
+            'defender_distance': 15,
+            'scared_defender_distance': -5,
             'distance_to_capsule': -10,
             'stop': -100.0
         }
